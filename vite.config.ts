@@ -1,9 +1,9 @@
 // vite.config.ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-// MUST match your repo name exactly
+// IMPORTANT: this must match your repo name
 export default defineConfig({
+  base: '/saadverse-dapp/',
   plugins: [react()],
-  base: "/saadverse-dapp/",
-});
+})
