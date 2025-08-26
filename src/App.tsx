@@ -1,11 +1,9 @@
-
-
-
 // src/App.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { InjectedConnector } from "wagmi/connectors/injected";
 import { ethers } from "ethers";
+import Transak from "@transak/transak-sdk";
 
 import {
   ACTIVE_CHAIN,
@@ -18,18 +16,24 @@ import {
 
 import { SAAD_PRESALE_USD_PRO_ABI, ERC20_MIN_ABI } from "./abi";
 
+// Helpers
 const fmt = (n: bigint, d = 18) => Number(n) / Number(10n ** BigInt(d));
+const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 
 export default function App() {
   const { address, isConnected } = useAccount();
   const { connect } = useConnect({ connector: new InjectedConnector() });
   const { disconnect } = useDisconnect();
 
-  // Display state
+  // ── Display / contract state ────────────────────────────────────────────────
   const [phase, setPhase] = useState<number>(0);
   const [usdPrice, setUsdPrice] = useState<number>(0.0016); // fallback
   const [presaleEnded, setPresaleEnded] = useState<boolean>(false);
   const [whitelistRequired, setWhitelistRequired] = useState<boolean>(false);
+
+  // Phase progress
+  const [phaseCap, setPhaseCap] = useState<bigint>(0n);
+  const [phaseSold, setPhaseSold] = useState<bigint>(0n);
 
   // ETH
   const [ethAmount, setEthAmount] = useState("0.001");
@@ -66,6 +70,9 @@ export default function App() {
   const [endCliffMin, setEndCliffMin] = useState("2");      // minutes for quick tests
   const [endDurationMin, setEndDurationMin] = useState("6"); // minutes for quick tests
 
+  // Transak instance ref (so we can close/cleanup properly)
+  const transakRef = useRef<Transak | null>(null);
+
   const needsApprove = useMemo(() => {
     try {
       const want = ethers.parseUnits(usdtAmount || "0", usdtDecimals);
@@ -75,6 +82,7 @@ export default function App() {
     }
   }, [allowance, usdtAmount, usdtDecimals]);
 
+  // ── Ethers helpers ─────────────────────────────────────────────────────────
   async function getSigner() {
     if (!window.ethereum) throw new Error("No injected wallet");
     const provider = new ethers.BrowserProvider(window.ethereum);
@@ -88,6 +96,7 @@ export default function App() {
 
   async function readState(signer: ethers.Signer) {
     const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
+
     // phase + price
     try {
       const p: bigint = await presale.currentPhase();
@@ -95,6 +104,7 @@ export default function App() {
       const pr6: bigint = await presale.pricePerTokenUSDT(p);
       setUsdPrice(Number(pr6) / 1e6);
     } catch {}
+
     // ended + whitelist
     try {
       const ended: boolean = await presale.presaleEnded();
@@ -104,8 +114,19 @@ export default function App() {
       const wl: boolean = await presale.whitelistRequired();
       setWhitelistRequired(wl);
     } catch {}
+
+    // phase progress (cap/sold) for current phase
+    try {
+      const ph = await presale.phases(await presale.currentPhase());
+      setPhaseCap(ph.cap);
+      setPhaseSold(ph.sold);
+    } catch {
+      setPhaseCap(0n);
+      setPhaseSold(0n);
+    }
+
     // vesting info (if any purchases)
-    if (address) {
+    if ((address ?? "") !== "") {
       try {
         const info = await presale.vestingInfo(address);
         setTotal(info.total);
@@ -120,14 +141,16 @@ export default function App() {
         setClaimStart(0); setCliff(0); setDuration(0);
       }
     }
+
     // usdt data
     try {
       const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
       const d: number = await erc20.decimals();
       setUsdtDecimals(d);
-      const bal: bigint = await erc20.balanceOf(await signer.getAddress());
+      const me = await signer.getAddress();
+      const bal: bigint = await erc20.balanceOf(me);
       setUsdtBalance(bal);
-      const a: bigint = await erc20.allowance(await signer.getAddress(), PRESALE_ADDRESS);
+      const a: bigint = await erc20.allowance(me, PRESALE_ADDRESS);
       setAllowance(a);
     } catch {}
   }
@@ -138,9 +161,17 @@ export default function App() {
       const signer = await getSigner();
       await readState(signer);
     })();
+
+    // cleanup Transak instance if page hot-reloads
+    return () => {
+      if (transakRef.current) {
+        try { transakRef.current.close(); } catch {}
+        transakRef.current = null;
+      }
+    };
   }, [isConnected, address]);
 
-  // ETH buy
+  // ── BUY: ETH ────────────────────────────────────────────────────────────────
   async function handleBuyETH() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
@@ -161,7 +192,7 @@ export default function App() {
     }
   }
 
-  // USDT approve + buy
+  // ── BUY: USDT ───────────────────────────────────────────────────────────────
   async function handleApproveUSDT() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
@@ -172,7 +203,8 @@ export default function App() {
       const amount = ethers.parseUnits(usdtAmount || "0", usdtDecimals);
       const tx = await erc20.approve(PRESALE_ADDRESS, amount);
       await tx.wait();
-      const a: bigint = await erc20.allowance(await signer.getAddress(), PRESALE_ADDRESS);
+      const me = await signer.getAddress();
+      const a: bigint = await erc20.allowance(me, PRESALE_ADDRESS);
       setAllowance(a);
       setTxStatus("✅ USDT approved!");
     } catch (err: any) {
@@ -201,7 +233,7 @@ export default function App() {
     }
   }
 
-  // Claim
+  // ── CLAIM ──────────────────────────────────────────────────────────────────
   async function handleClaim() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
@@ -220,23 +252,59 @@ export default function App() {
     }
   }
 
-  // Onramps
-  function openTransak() {
+  // ── ONRAMPS ────────────────────────────────────────────────────────────────
+  // Replace raw window.open with embedded Transak SDK (works on GitHub Pages)
+  function openTransakSDK() {
     if (!address) return alert("Connect wallet first.");
     if (!TRANSAK_API_KEY || TRANSAK_API_KEY === "YOUR_TRANSAK_API_KEY") {
       alert("Set TRANSAK_API_KEY in src/constants.ts");
       return;
     }
-    const params = new URLSearchParams({
+    // Decide environment based on URL you configured
+    const env =
+      (TRANSAK_ENV_URL || "").includes("global.transak.com") ? "PRODUCTION" : "STAGING";
+
+    // Close any previous instance
+    if (transakRef.current) {
+      try { transakRef.current.close(); } catch {}
+      transakRef.current = null;
+    }
+
+    const transak = new Transak({
       apiKey: TRANSAK_API_KEY,
-      environment: "STAGING",
+      environment: env, // "STAGING" or "PRODUCTION"
+      hostURL: window.location.origin,
+      widgetHeight: "650px",
+      widgetWidth: "460px",
+      defaultCryptoCurrency: "ETH",   // or "USDT"
       walletAddress: address,
-      defaultCryptoCurrency: "ETH",
-      cryptoCurrencyCode: "ETH",
+      // You can pass "network" when supported (e.g., "base" for Base mainnet)
+      // network: ACTIVE_CHAIN.name.toLowerCase().includes("base") ? "base" : undefined,
+      disableWalletAddressForm: true,
+      hideMenu: true,
+      isFeeCalculationHidden: false,
     });
-    const url = `${TRANSAK_ENV_URL}?${params.toString()}`;
-    window.open(url, "_blank", "width=420,height=720");
+
+    // Bind events (optional but useful)
+    transak.on(Transak.EVENTS.TRANSAK_ORDER_CREATED, (orderData: any) => {
+      console.log("Transak ORDER_CREATED", orderData);
+    });
+    transak.on(Transak.EVENTS.TRANSAK_ORDER_SUCCESSFUL, (orderData: any) => {
+      console.log("Transak ORDER_SUCCESSFUL", orderData);
+      alert("Transak order successful. Once your assets arrive, finish your buy here.");
+      try { transak.close(); } catch {}
+      transakRef.current = null;
+    });
+    transak.on(Transak.EVENTS.TRANSAK_WIDGET_CLOSE, () => {
+      console.log("Transak widget closed");
+      try { transak.close(); } catch {}
+      transakRef.current = null;
+    });
+
+    transak.init();
+    transakRef.current = transak;
   }
+
   function openCoinbaseCheckout() {
     if (!COINBASE_CHECKOUT_ID || COINBASE_CHECKOUT_ID === "YOUR_COMMERCE_CHECKOUT_ID") {
       alert("Set COINBASE_CHECKOUT_ID in src/constants.ts");
@@ -245,7 +313,7 @@ export default function App() {
     window.open(`https://commerce.coinbase.com/checkout/${COINBASE_CHECKOUT_ID}`, "_blank");
   }
 
-  // Admin
+  // ── ADMIN (owner) ──────────────────────────────────────────────────────────
   async function adminPauseResume(pause: boolean) {
     try {
       const signer = await getSigner();
@@ -344,13 +412,14 @@ export default function App() {
     } catch (e: any) { alert(e?.reason || e?.message || String(e)); }
   }
 
-  // Claim card helpers
+  // ── UI helpers ─────────────────────────────────────────────────────────────
   function secondsToHMS(s: number) {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const ss = Math.floor(s % 60);
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
   }
+
   function ClaimCard() {
     const now = Math.floor(Date.now() / 1000);
     const untilCliff = Math.max(0, _claimStart + _cliff - now);
@@ -383,13 +452,36 @@ export default function App() {
     );
   }
 
+  // Simple phase progress bar (sold / cap)
+  const phasePct =
+    Number(phaseCap) > 0 ? clamp(Number((phaseSold * 10000n) / phaseCap) / 100) : 0;
+
   return (
     <div className="app" style={{ minHeight: "100vh", padding: 24, color: "#fff", background: "#0d0d0d" }}>
-      <h1 style={{ fontSize: 36, marginBottom: 4 }}>SAADverse Presale</h1>
+      <h1 style={{ fontSize: 36, marginBottom: 6 }}>SAADverse Presale</h1>
 
       <p style={{ margin: 0, opacity: 0.9 }}>
         Current Phase: <b>{phase + 1}</b> &nbsp; | &nbsp; Price: <b>${usdPrice.toFixed(4)}</b> per SQ8
       </p>
+
+      {/* Phase progress */}
+      <div style={{ marginTop: 10, marginBottom: 12, maxWidth: 520, width: "100%" }}>
+        <div style={{ height: 10, background: "#1f2937", borderRadius: 999 }}>
+          <div
+            style={{
+              width: `${phasePct}%`,
+              height: "100%",
+              background: "#22c55e",
+              borderRadius: 999,
+              transition: "width 300ms ease",
+            }}
+          />
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
+          Sold in phase: <b>{fmt(phaseSold).toLocaleString()}</b> /{" "}
+          <b>{fmt(phaseCap).toLocaleString()}</b> SQ8 ({phasePct.toFixed(2)}%)
+        </div>
+      </div>
 
       <p style={{ opacity: 0.8, marginTop: 8 }}>
         Chain: <b>{ACTIVE_CHAIN.name}</b> — Wallet: {isConnected ? <span style={{ color: "#39ff14" }}>{address}</span> : "Not connected"}
@@ -447,14 +539,14 @@ export default function App() {
       {/* Onramps */}
       <div style={{ border: "1px solid #f59e0b", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%" }}>
         <h3>Buy with Card / Apple Pay / PayPal</h3>
-        <button onClick={openTransak} style={{ padding: 12, background: "#f59e0b", color: "#000", borderRadius: 8, width: "100%", marginBottom: 8 }}>
-          Open Transak (Card / Apple Pay)
+        <button onClick={openTransakSDK} style={{ padding: 12, background: "#f59e0b", color: "#000", borderRadius: 8, width: "100%", marginBottom: 8 }}>
+          Open Transak (Embedded)
         </button>
         <button onClick={openCoinbaseCheckout} style={{ padding: 12, background: "#fff", color: "#000", borderRadius: 8, width: "100%" }}>
           Open Coinbase Commerce (Card / PayPal / Crypto)
         </button>
         <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
-          Configure <code>TRANSAK_API_KEY</code> and <code>COINBASE_CHECKOUT_ID</code> in <code>src/constants.ts</code>.
+          Make sure your Transak API key has your GitHub Pages domain in <i>Allowed Domains</i>.
         </p>
       </div>
 
@@ -469,19 +561,13 @@ export default function App() {
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => adminPauseResume(true)}>Pause</button>
             <button onClick={() => adminPauseResume(false)}>Resume</button>
+            <span style={{ fontSize: 12, opacity: 0.75 }}>Whitelist now: {String(whitelistRequired)}</span>
           </div>
 
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={carryOver} onChange={(e) => setCarryOver(e.target.checked)} /> Carry over unsold on advance
           </label>
           <button onClick={adminAdvance}>Advance Phase</button>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span>Whitelist required?</span>
-            <button onClick={() => adminToggleWhitelist(true)}>Enable</button>
-            <button onClick={() => adminToggleWhitelist(false)}>Disable</button>
-            <span style={{ opacity: 0.75 }}>(now: {String(whitelistRequired)})</span>
-          </div>
 
           <div>
             <input placeholder="ETH receiver" value={newEthR} onChange={(e)=>setNewEthR(e.target.value)} style={{ width:"100%", padding:8, borderRadius:8, marginBottom:6 }}/>
@@ -533,7 +619,7 @@ export default function App() {
 
       {txStatus && <p style={{ marginTop: 12 }}>{txStatus}</p>}
 
-      <footer style={{ marginTop: 32, opacity: 0.6, fontSize: 12 }}>© 2025 SAADverse — USD-pegged (Pro)</footer>
+      <footer style={{ marginTop: 32, opacity: 0.6, fontSize: 12 }}>© 2025 SAADverse — USD-pegged (Pro) + Transak SDK</footer>
     </div>
   );
 }
