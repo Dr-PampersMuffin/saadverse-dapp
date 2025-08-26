@@ -1,7 +1,7 @@
 export const ACTIVE_CHAIN = { id: 8453, name: "Base" };
 
 export const PRESALE_ADDRESS = "0x00ab2677723295F2d0A79cb68E1893f9707B409D";
-export const USDT_ADDRESS    = "0xdac17f958d2ee523a2206206994597c13d831ec7"; // USDC or USDT (6 decimals)
+export const USDT_ADDRESS    = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"; // USDC or USDT (6 decimals)
 export const SAAD_ADDRESS    = "0x3120B918b65613fC709272E26938352229c2E597";
 
 // On-ramp configs (ok to leave as-is for testing)
