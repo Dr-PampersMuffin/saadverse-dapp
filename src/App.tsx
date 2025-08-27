@@ -14,14 +14,11 @@ import {
 } from "./constants";
 import { SAAD_PRESALE_USD_PRO_ABI, ERC20_MIN_ABI } from "./abi";
 
-// small helpers
+// helpers
 const fmt = (n: bigint, d = 18) => Number(n) / Number(10n ** BigInt(d));
-const CHAIN_NAMES: Record<number, string> = {
-  8453: "Base",
-  84532: "Base Sepolia",
-  11155111: "Sepolia",
-  1: "Ethereum",
-};
+const CHAIN_NAMES: Record<number, string> = { 8453: "Base", 84532: "Base Sepolia", 11155111: "Sepolia", 1: "Ethereum" };
+const TWO_DEC = (n: number) => (isFinite(n) ? n.toFixed(2) : "0.00");
+const SIX_DEC = (n: number) => (isFinite(n) ? n.toFixed(6) : "0.000000");
 
 export default function App() {
   // wagmi
@@ -29,15 +26,31 @@ export default function App() {
   const { connect } = useConnect({ connector: new InjectedConnector() });
   const { disconnect } = useDisconnect();
 
-  // runtime chain from wallet
+  // wallet chain
   const [walletChainId, setWalletChainId] = useState<number | null>(null);
   const [walletChainName, setWalletChainName] = useState<string>("—");
 
-  // display state
+  // presale state
   const [phase, setPhase] = useState<number>(0);
   const [usdPrice, setUsdPrice] = useState<number>(0.0016);
+  const [priceUSDT6, setPriceUSDT6] = useState<bigint>(1600n); // 6dp
   const [presaleEnded, setPresaleEnded] = useState<boolean>(false);
   const [whitelistRequired, setWhitelistRequired] = useState<boolean>(false);
+  const [paused, setPaused] = useState<boolean>(false);
+
+  // phase gauge
+  const [phaseCap, setPhaseCap] = useState<bigint>(0n);      // 18dp tokens
+  const [phaseSold, setPhaseSold] = useState<bigint>(0n);    // 18dp tokens
+  const [phaseDeadline, setPhaseDeadline] = useState<number>(0);
+
+  // oracle
+  const [ethUsd6, setEthUsd6] = useState<bigint>(0n); // ETH/USD * 1e6
+
+  // “buy by amount of SQ8”
+  const [desiredTokens, setDesiredTokens] = useState<string>(""); // human 18dp
+  const [suggestUsd, setSuggestUsd] = useState<string>("0.00");   // USD
+  const [suggestUsdt, setSuggestUsdt] = useState<string>("0.00"); // USDT (≈ USD for 6dp stables)
+  const [suggestEth, setSuggestEth] = useState<string>("0.000000");
 
   // ETH buy
   const [ethAmount, setEthAmount] = useState("0.001");
@@ -83,7 +96,7 @@ export default function App() {
     }
   }, [allowance, usdtAmount, usdtDecimals]);
 
-  // ---- wallet network detection & listeners ----
+  // wallet chain tracking
   useEffect(() => {
     async function readChain() {
       try {
@@ -100,18 +113,14 @@ export default function App() {
     }
     readChain();
 
-    // listen for network/account changes
     if (window.ethereum?.on) {
       const onChain = (hex: string) => {
         const id = parseInt(hex, 16);
         setWalletChainId(id);
         setWalletChainName(CHAIN_NAMES[id] || `Chain ${id}`);
-        // soft reset state on chain change
         setTxStatus("");
       };
-      const onAccounts = () => {
-        setTxStatus("");
-      };
+      const onAccounts = () => setTxStatus("");
       window.ethereum.on("chainChanged", onChain);
       window.ethereum.on("accountsChanged", onAccounts);
       return () => {
@@ -126,23 +135,20 @@ export default function App() {
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x2105" /* 8453 Base */ }],
+        params: [{ chainId: "0x2105" }],
       });
     } catch (err: any) {
-      // if not added, try add chain
       if (err?.code === 4902) {
         try {
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: "0x2105",
-                chainName: "Base",
-                nativeCurrency: { name: "Base Ether", symbol: "ETH", decimals: 18 },
-                rpcUrls: ["https://mainnet.base.org"],
-                blockExplorerUrls: ["https://basescan.org"],
-              },
-            ],
+            params: [{
+              chainId: "0x2105",
+              chainName: "Base",
+              nativeCurrency: { name: "Base Ether", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://mainnet.base.org"],
+              blockExplorerUrls: ["https://basescan.org"],
+            }],
           });
         } catch (e: any) {
           alert(e?.message || String(e));
@@ -153,81 +159,66 @@ export default function App() {
     }
   }
 
-  // ---- shared signer helper with strict network check ----
+  // signer helper
   async function getSigner() {
     if (!window.ethereum) throw new Error("No injected wallet");
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     const net = await provider.getNetwork();
     if (net.chainId !== BigInt(ACTIVE_CHAIN.id)) {
-      throw new Error(
-        `Wrong network. Expected ${ACTIVE_CHAIN.name} (${ACTIVE_CHAIN.id}), got ${
-          CHAIN_NAMES[Number(net.chainId)] || Number(net.chainId)
-        }.`
-      );
+      throw new Error(`Wrong network. Expected ${ACTIVE_CHAIN.name} (${ACTIVE_CHAIN.id}), got ${
+        CHAIN_NAMES[Number(net.chainId)] || Number(net.chainId)
+      }.`);
     }
     return signer;
   }
 
-  // ---- state reader ----
+  // read presale state
   async function readState(signer: ethers.Signer) {
     const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
 
-    // phase + price
     try {
       const p: bigint = await presale.currentPhase();
       setPhase(Number(p));
       const pr6: bigint = await presale.pricePerTokenUSDT(p);
+      setPriceUSDT6(pr6);
       setUsdPrice(Number(pr6) / 1e6);
+      // phase info (cap/sold/deadline)
+      const info = await presale.phases(p);
+      setPhaseCap(info.cap);
+      setPhaseSold(info.sold);
+      setPhaseDeadline(Number(info.deadline));
     } catch {}
 
-    // ended + whitelist
-    try {
-      const ended: boolean = await presale.presaleEnded();
-      setPresaleEnded(ended);
-    } catch {}
-    try {
-      const wl: boolean = await presale.whitelistRequired();
-      setWhitelistRequired(wl);
-    } catch {}
+    try { setPresaleEnded(await presale.presaleEnded()); } catch {}
+    try { setWhitelistRequired(await presale.whitelistRequired()); } catch {}
+    try { setPaused(await presale.paused()); } catch {}
 
-    // vesting info
+    try { setEthUsd6(await presale.getEthUsd6()); } catch {}
+
+    // vesting card
     if (address) {
       try {
-        const info = await presale.vestingInfo(address);
-        setTotal(info.total);
-        setAlreadyClaimed(info.alreadyClaimed);
-        setUnlocked(info.unlocked);
-        setClaimable(info.claimable);
-        setClaimStart(Number(info._claimStart));
-        setCliff(Number(info._cliff));
-        setDuration(Number(info._duration));
+        const v = await presale.vestingInfo(address);
+        setTotal(v.total);
+        setAlreadyClaimed(v.alreadyClaimed);
+        setUnlocked(v.unlocked);
+        setClaimable(v.claimable);
+        setClaimStart(Number(v._claimStart));
+        setCliff(Number(v._cliff));
+        setDuration(Number(v._duration));
       } catch {
-        setTotal(0n);
-        setAlreadyClaimed(0n);
-        setUnlocked(0n);
-        setClaimable(0n);
-        setClaimStart(0);
-        setCliff(0);
-        setDuration(0);
+        setTotal(0n); setAlreadyClaimed(0n); setUnlocked(0n); setClaimable(0n);
+        setClaimStart(0); setCliff(0); setDuration(0);
       }
     }
 
-    // usdt data (tolerant)
+    // usdt (tolerant)
     try {
       const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
-      try {
-        const d: number = await erc20.decimals();
-        setUsdtDecimals(d);
-      } catch {}
-      try {
-        const bal: bigint = await erc20.balanceOf(await signer.getAddress());
-        setUsdtBalance(bal);
-      } catch {}
-      try {
-        const a: bigint = await erc20.allowance(await signer.getAddress(), PRESALE_ADDRESS);
-        setAllowance(a);
-      } catch {}
+      try { setUsdtDecimals(await erc20.decimals()); } catch {}
+      try { setUsdtBalance(await erc20.balanceOf(await signer.getAddress())); } catch {}
+      try { setAllowance(await erc20.allowance(await signer.getAddress(), PRESALE_ADDRESS)); } catch {}
     } catch {}
   }
 
@@ -238,13 +229,42 @@ export default function App() {
         const signer = await getSigner();
         await readState(signer);
       } catch (e: any) {
-        // likely wrong network; we'll show the banner anyway
         console.warn("Init read skipped:", e?.message || e);
       }
     })();
   }, [isConnected, address, walletChainId]);
 
-  // ---- buys ----
+  // compute suggestions from desired SQ8 amount
+  useEffect(() => {
+    try {
+      const tokensStr = (desiredTokens || "").trim();
+      if (!tokensStr || Number(tokensStr) <= 0 || priceUSDT6 <= 0n) {
+        setSuggestUsd("0.00");
+        setSuggestUsdt("0.00");
+        setSuggestEth("0.000000");
+        return;
+      }
+      // usd6Total = tokens18 * price6 / 1e18
+      const tokens18 = ethers.parseUnits(tokensStr, 18); // bigint
+      const usd6Total = (tokens18 * priceUSDT6) / 10n ** 18n;
+
+      const usd = Number(usd6Total) / 1e6;
+      setSuggestUsd(TWO_DEC(usd));
+      setSuggestUsdt(TWO_DEC(usd)); // USDT ~ USD
+      if (ethUsd6 > 0n) {
+        const eth = Number(usd6Total) / Number(ethUsd6); // ETH = USD6 / ETHUSD6
+        setSuggestEth(SIX_DEC(eth));
+      } else {
+        setSuggestEth("0.000000");
+      }
+    } catch {
+      setSuggestUsd("0.00");
+      setSuggestUsdt("0.00");
+      setSuggestEth("0.000000");
+    }
+  }, [desiredTokens, priceUSDT6, ethUsd6]);
+
+  // buys
   async function handleBuyETH() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
@@ -260,9 +280,7 @@ export default function App() {
       setTxStatus("✅ ETH purchase successful!");
     } catch (err: any) {
       setTxStatus(`❌ Failed: ${err?.reason || err?.message || err}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function handleApproveUSDT() {
@@ -275,7 +293,6 @@ export default function App() {
       const amount = ethers.parseUnits(usdtAmount || "0", usdtDecimals);
       const tx = await erc20.approve(PRESALE_ADDRESS, amount);
       await tx.wait();
-      // refresh
       try {
         const a: bigint = await erc20.allowance(await signer.getAddress(), PRESALE_ADDRESS);
         setAllowance(a);
@@ -283,9 +300,7 @@ export default function App() {
       setTxStatus("✅ USDT approved!");
     } catch (err: any) {
       setTxStatus(`❌ Approve failed: ${err?.reason || err?.message || err}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function handleBuyUSDT() {
@@ -303,12 +318,10 @@ export default function App() {
       setTxStatus("✅ USDT purchase successful!");
     } catch (err: any) {
       setTxStatus(`❌ USDT buy failed: ${err?.reason || err?.message || err}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  // ---- claim ----
+  // claim
   async function handleClaim() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
@@ -322,12 +335,10 @@ export default function App() {
       setTxStatus("✅ Claim successful!");
     } catch (err: any) {
       setTxStatus(`❌ Claim failed: ${err?.reason || err?.message || err}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  // ---- onramps (simple window) ----
+  // onramps (simple window)
   function openTransak() {
     if (!address) return alert("Connect wallet first.");
     if (!TRANSAK_API_KEY || TRANSAK_API_KEY === "YOUR_TRANSAK_API_KEY") {
@@ -336,7 +347,7 @@ export default function App() {
     }
     const params = new URLSearchParams({
       apiKey: TRANSAK_API_KEY,
-      environment: "PRODUCTION", // if your key is production
+      environment: "PRODUCTION",
       walletAddress: address,
       defaultCryptoCurrency: "ETH",
       cryptoCurrencyCode: "ETH",
@@ -353,7 +364,7 @@ export default function App() {
     window.open(`https://commerce.coinbase.com/checkout/${COINBASE_CHECKOUT_ID}`, "_blank");
   }
 
-  // ---- admin ----
+  // admin
   async function adminPauseResume(pause: boolean) {
     try {
       const signer = await getSigner();
@@ -378,7 +389,7 @@ export default function App() {
     try {
       const signer = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
-    const tx = await presale.setWhitelistRequired(required);
+      const tx = await presale.setWhitelistRequired(required);
       await tx.wait();
       await readState(signer);
       alert(`Whitelist ${required ? "enabled" : "disabled"}`);
@@ -418,7 +429,7 @@ export default function App() {
   async function adminSetPrice() {
     try {
       const p = Number(pricePhase) - 1;
-      const price = Number(price6 || "0"); // uint32
+      const price = Number(price6 || "0");
       const signer = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
       const tx = await presale.setPhasePrice(p, price);
@@ -452,13 +463,27 @@ export default function App() {
     } catch (e: any) { alert(e?.reason || e?.message || String(e)); }
   }
 
-  // ---- claim card ----
+  // gauge helpers
+  function percentSold(cap: bigint, sold: bigint): number {
+    if (cap <= 0n) return 0;
+    const pctTimes100 = (sold * 10000n) / cap; // two decimals
+    return Number(pctTimes100) / 100;
+  }
+  function secondsToDHMS(s: number) {
+    if (s <= 0) return "Ended";
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${d}d ${h}h ${m}m`;
+  }
   function secondsToHMS(s: number) {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const ss = Math.floor(s % 60);
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
   }
+
+  // claim card
   function ClaimCard() {
     const now = Math.floor(Date.now() / 1000);
     const untilCliff = Math.max(0, _claimStart + _cliff - now);
@@ -491,8 +516,12 @@ export default function App() {
     );
   }
 
-  // ---- UI ----
   const wrongNetwork = walletChainId !== null && walletChainId !== ACTIVE_CHAIN.id;
+
+  // UI
+  const now = Math.floor(Date.now() / 1000);
+  const secsLeft = phaseDeadline ? Math.max(0, phaseDeadline - now) : 0;
+  const pct = Math.max(0, Math.min(100, percentSold(phaseCap, phaseSold)));
 
   return (
     <div className="app" style={{ minHeight: "100vh", padding: 24, color: "#fff", background: "#0d0d0d" }}>
@@ -510,6 +539,8 @@ export default function App() {
 
       <p style={{ margin: 0, opacity: 0.9 }}>
         Current Phase: <b>{phase + 1}</b> &nbsp; | &nbsp; Price: <b>${usdPrice.toFixed(4)}</b> per SQ8
+        <span style={{ marginLeft: 12, opacity: 0.75 }}>Paused: <b>{paused ? "Yes" : "No"}</b></span>
+        <span style={{ marginLeft: 12, opacity: 0.75 }}>Whitelist: <b>{whitelistRequired ? "On" : "Off"}</b></span>
       </p>
 
       <p style={{ opacity: 0.8, marginTop: 8 }}>
@@ -525,6 +556,48 @@ export default function App() {
           Connect Wallet
         </button>
       )}
+
+      {/* Phase Progress Gauge */}
+      <div style={{ border: "1px solid #22d3ee", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Phase Progress</h3>
+        <div style={{ background: "#1f2937", borderRadius: 999, height: 14, overflow: "hidden", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #22d3ee, #06b6d4)" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, opacity: 0.9 }}>
+          <span>Sold: {fmt(phaseSold).toLocaleString()} / {fmt(phaseCap).toLocaleString()} SQ8</span>
+          <span>{pct.toFixed(2)}%</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+          Time remaining: <b>{phaseDeadline ? secondsToDHMS(secsLeft) : "—"}</b>
+        </div>
+      </div>
+
+      {/* Buy by SQ8 amount */}
+      <div style={{ border: "1px solid #93c5fd", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Buy by SQ8 Amount</h3>
+        <input
+          value={desiredTokens}
+          onChange={(e) => setDesiredTokens(e.target.value)}
+          placeholder="Enter SQ8 amount you want (e.g., 250000)"
+          style={{ width: "100%", padding: 10, borderRadius: 8, marginBottom: 10 }}
+        />
+        <div style={{ fontSize: 14, lineHeight: 1.6, opacity: 0.95 }}>
+          <div>USD total (phase price): <b>${suggestUsd}</b></div>
+          <div>≈ ETH needed now: <b>{suggestEth} ETH</b> (oracle)</div>
+          <div>≈ USDT needed: <b>{suggestUsdt} USDT</b></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button onClick={() => setEthAmount(suggestEth)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}>
+            Use for ETH
+          </button>
+          <button onClick={() => setUsdtAmount(suggestUsdt)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}>
+            Use for USDT
+          </button>
+        </div>
+        <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
+          Tip: These are estimates; the contract always charges the exact phase USD price using the oracle.
+        </p>
+      </div>
 
       {/* Buy ETH */}
       <div style={{ border: "1px solid #39ff14", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
