@@ -15,6 +15,15 @@ import {
 } from "./constants";
 
 import { SAAD_PRESALE_USD_PRO_ABI, ERC20_MIN_ABI } from "./abi";
+// ---- Base mainnet params for wallet_addEthereumChain ----
+const BASE_CHAIN_HEX = "0x2105"; // 8453
+const BASE_ADD_PARAMS = {
+  chainId: BASE_CHAIN_HEX,
+  chainName: "Base",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://mainnet.base.org"],
+  blockExplorerUrls: ["https://basescan.org"],
+};
 
 // Helpers
 const fmt = (n: bigint, d = 18) => Number(n) / Number(10n ** BigInt(d));
