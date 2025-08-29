@@ -1,4 +1,9 @@
-export const ACTIVE_CHAIN = { id: 8453, name: "Base" };
+export const ACTIVE_CHAIN = {
+  id: 8453,
+  name: "Base",
+  rpcUrl: "https://mainnet.base.org", // optional hint for UI
+  blockExplorer: "https://basescan.org",
+};
 
 export const PRESALE_ADDRESS = "0x00ab2677723295F2d0A79cb68E1893f9707B409D";
 export const USDT_ADDRESS    = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"; // USDC or USDT (6 decimals)
