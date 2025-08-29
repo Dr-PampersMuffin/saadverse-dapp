@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: "/saadverse-dapp/",
   build: {
-    outDir: "dist",
+    outDir: 'docs',
     sourcemap: false,
   },
   server: {
