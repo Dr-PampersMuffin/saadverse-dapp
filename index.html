@@ -2,14 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Put favicon.ico in /public and use a relative path -->
+    <!-- IMPORTANT for GitHub Pages under /saadverse-dapp/ -->
+    <base href="/saadverse-dapp/" />
+
+    <!-- Put favicon.ico in /public (Vite will copy it to the root of the build) -->
     <link rel="icon" href="favicon.ico" />
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SAADverse Presale dApp</title>
   </head>
   <body>
     <div id="root"></div>
-    <!-- Vite will rewrite this to hashed assets on build -->
+    <!-- Vite rewrites this on build; the <base> tag makes the path resolve correctly -->
     <script type="module" src="src/main.tsx"></script>
   </body>
 </html>
