@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+pnpm-lock.yaml
+
+# build output
+dist/
+.vite/
+coverage/
+
+# gh-pages cache
+node_modules/.cache/gh-pages/
+
+# env / secrets
+.env
+.env.local
+
+# OS/editor
+.DS_Store
+Thumbs.db
