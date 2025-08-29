@@ -2,18 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- IMPORTANT for GitHub Pages under /saadverse-dapp/ -->
-    <base href="/saadverse-dapp/" />
-
-    <!-- Put favicon.ico in /public (Vite will copy it to the root of the build) -->
-    <link rel="icon" href="favicon.ico" />
-
+    <!-- Put a favicon in /public/favicon.ico (Vite will handle base path) -->
+    <link rel="icon" href="/saadverse-dapp/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SAADverse Presale dApp</title>
   </head>
   <body>
     <div id="root"></div>
-    <!-- Vite rewrites this on build; the <base> tag makes the path resolve correctly -->
-    <script type="module" src="src/main.tsx"></script>
+    <!-- Use a leading slash so Vite rewrites with the base prefix on build -->
+    <script type="module" src="/saadverse-dapp/src/main.tsx"></script>
+    <!-- If dev server is used locally, Vite still resolves /src correctly -->
   </body>
 </html>
