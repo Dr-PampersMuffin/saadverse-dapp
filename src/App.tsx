@@ -573,31 +573,45 @@ export default function App() {
       </div>
 
       {/* Buy by SQ8 amount */}
-      <div style={{ border: "1px solid #93c5fd", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Buy by SQ8 Amount</h3>
-        <input
-          value={desiredTokens}
-          onChange={(e) => setDesiredTokens(e.target.value)}
-          placeholder="Enter SQ8 amount you want (e.g., 250000)"
-          style={{ width: "100%", padding: 10, borderRadius: 8, marginBottom: 10 }}
-        />
-        <div style={{ fontSize: 14, lineHeight: 1.6, opacity: 0.95 }}>
-          <div>USD total (phase price): <b>${suggestUsd}</b></div>
-          <div>≈ ETH needed now: <b>{suggestEth} ETH</b> (oracle)</div>
-          <div>≈ USDT needed: <b>{suggestUsdt} USDT</b></div>
-        </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button onClick={() => setEthAmount(suggestEth)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}>
-            Use for ETH
-          </button>
-          <button onClick={() => setUsdtAmount(suggestUsdt)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}>
-            Use for USDT
-          </button>
-        </div>
-        <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
-          Tip: These are estimates; the contract always charges the exact phase USD price using the oracle.
-        </p>
-      </div>
+<div style={{ border: "1px solid #93c5fd", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
+  <h3 style={{ marginTop: 0 }}>Buy by SQ8 Amount</h3>
+  <input
+    value={desiredTokens}
+    onChange={(e) => setDesiredTokens(e.target.value)}
+    placeholder="Enter SQ8 amount you want (e.g., 250000)"
+    style={{ width: "100%", padding: 10, borderRadius: 8, marginBottom: 10 }}
+  />
+  <div style={{ fontSize: 14, lineHeight: 1.6, opacity: 0.95 }}>
+    <div>USD total (phase price): <b>${suggestUsd}</b></div>
+    <div>≈ ETH needed now: <b>{suggestEth} ETH</b> (oracle)</div>
+    <div>≈ USDT needed: <b>{suggestUsdt} USDT</b></div>
+  </div>
+  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+    <button
+      disabled={loading}
+      onClick={async () => {
+        setEthAmount(suggestEth);
+        await handleBuyETH();    // 🔥 call buy with ETH immediately
+      }}
+      style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}
+    >
+      {loading ? "Processing…" : "Use for ETH"}
+    </button>
+    <button
+      disabled={loading}
+      onClick={async () => {
+        setUsdtAmount(suggestUsdt);
+        await handleBuyUSDT();   // 🔥 call buy with USDT immediately
+      }}
+      style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}
+    >
+      {loading ? "Processing…" : "Use for USDT"}
+    </button>
+  </div>
+  <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
+    Tip: These are estimates; the contract always charges the exact phase USD price using the oracle.
+  </p>
+</div>
 
       {/* Buy ETH */}
       <div style={{ border: "1px solid #39ff14", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%", marginBottom: 16 }}>
