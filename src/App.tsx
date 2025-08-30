@@ -587,27 +587,13 @@ export default function App() {
           <div>≈ USDT needed: <b>{suggestUsdt} USDT</b></div>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-  <button
-    disabled={loading}
-    onClick={() => {
-      setEthAmount(suggestEth);  // prefill
-      handleBuyETH();            // trigger tx
-    }}
-    style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}
-  >
-    {loading ? "Processing…" : "Use for ETH"}
-  </button>
-  <button
-    disabled={loading}
-    onClick={() => {
-      setUsdtAmount(suggestUsdt); 
-      handleBuyUSDT();
-    }}
-    style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}
-  >
-    {loading ? "Processing…" : "Use for USDT"}
-  </button>
-</div>
+          <button onClick={() => setEthAmount(suggestEth)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}>
+            Use for ETH
+          </button>
+          <button onClick={() => setUsdtAmount(suggestUsdt)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}>
+            Use for USDT
+          </button>
+        </div>
         <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
           Tip: These are estimates; the contract always charges the exact phase USD price using the oracle.
         </p>
