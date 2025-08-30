@@ -271,10 +271,18 @@ export default function App() {
       setLoading(true);
       setTxStatus("Sending ETH transaction…");
       const signer = await getSigner();
+<<<<<<< HEAD
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
       const value = ethers.parseEther(ethAmount || "0.001");
       try { await presale.buyWithETH.staticCall({ value }); } catch {}
       const tx = await presale.buyWithETH({ value, gasLimit: 300000n });
+=======
+      const presale = await getPresale(signer);
+      const value = ethers.parseEther(ethAmount || "0");
+
+      try { await presale.callStatic.buyWithETH({ value }); } catch {}
+      const tx = await presale.buyWithETH({ value });
+>>>>>>> 76fc4cd0 (smart sq8 app)
       await tx.wait();
       await readState(signer);
       setTxStatus("✅ ETH purchase successful!");
@@ -311,7 +319,12 @@ export default function App() {
       const signer = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
       const amount = ethers.parseUnits(usdtAmount || "0", usdtDecimals);
+<<<<<<< HEAD
       try { await presale.buyWithUSDT.staticCall(amount); } catch {}
+=======
+
+      try { await presale.callStatic.buyWithUSDT(amount); } catch {}
+>>>>>>> 76fc4cd0 (smart sq8 app)
       const tx = await presale.buyWithUSDT(amount, { gasLimit: 300000n });
       await tx.wait();
       await readState(signer);
@@ -321,7 +334,82 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+<<<<<<< HEAD
   // claim
+=======
+  // ---------- SMART PURCHASE (by SQ8 amount) ----------
+  async function handleSmartBuyETH() {
+    if (!isConnected) return alert("Connect wallet first.");
+    try {
+      setLoading(true);
+      setTxStatus("Preparing ETH purchase…");
+
+      const tokensWanted = parseFloat(desiredSq8 || "0");
+      if (!tokensWanted || tokensWanted <= 0) throw new Error("Enter SQ8 amount > 0");
+
+      const signer = await getSigner();
+      const presale = await getPresale(signer);
+
+      // USD cost (6 dp) = tokensWanted * priceUSDT6
+      const usd6 = BigInt(Math.ceil(tokensWanted * Number(priceUSDT6)));
+
+      // Convert USD→ETH using on-chain oracle
+      const ethUsd6: bigint = await presale.getEthUsd6();
+      let ethWei = (usd6 * 1_000_000_000_000_000_000n) / ethUsd6;
+      ethWei = (ethWei * 102n) / 100n; // +2% buffer
+
+      try { await presale.callStatic.buyWithETH({ value: ethWei }); } catch {}
+      const tx = await presale.buyWithETH({ value: ethWei });
+      await tx.wait();
+
+      setTxStatus("✅ ETH purchase successful!");
+    } catch (e: any) {
+      setTxStatus(`❌ Failed: ${e?.reason || e?.message || String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSmartBuyUSDT() {
+    if (!isConnected) return alert("Connect wallet first.");
+    try {
+      setLoading(true);
+      setTxStatus("Preparing USDT purchase…");
+
+      const tokensWanted = parseFloat(desiredSq8 || "0");
+      if (!tokensWanted || tokensWanted <= 0) throw new Error("Enter SQ8 amount > 0");
+
+      const signer = await getSigner();
+      const presale = await getPresale(signer);
+      const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
+
+      // USD (6 dp)
+      const usd6 = BigInt(Math.ceil(tokensWanted * Number(priceUSDT6)));
+
+      // approve if needed
+      const a: bigint = await erc20.allowance(address!, PRESALE_ADDRESS);
+      if (a < usd6) {
+        setTxStatus("Approving USDT…");
+        const txA = await erc20.approve(PRESALE_ADDRESS, usd6);
+        await txA.wait();
+      }
+
+      // buy
+      setTxStatus("Buying with USDT…");
+      try { await presale.callStatic.buyWithUSDT(usd6); } catch {}
+      const tx = await presale.buyWithUSDT(usd6, { gasLimit: 300000n });
+      await tx.wait();
+
+      setTxStatus("✅ USDT purchase successful!");
+    } catch (e: any) {
+      setTxStatus(`❌ Failed: ${e?.reason || e?.message || String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ---------- claim ----------
+>>>>>>> 76fc4cd0 (smart sq8 app)
   async function handleClaim() {
     if (!isConnected) return alert("Connect wallet first.");
     try {
