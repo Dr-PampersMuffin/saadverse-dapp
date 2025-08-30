@@ -264,6 +264,66 @@ export default function App() {
     }
   }, [desiredTokens, priceUSDT6, ethUsd6]);
 
+  // smart buys
+  async function handleSmartBuyETH() {
+    if (!isConnected) return alert("Connect wallet first.");
+    try {
+      setLoading(true);
+      setTxStatus("Preparing ETH purchase…");
+      const tokensStr = (desiredTokens || "").trim();
+      if (!tokensStr || Number(tokensStr) <= 0) throw new Error("Enter valid SQ8 amount > 0");
+      const tokens18 = ethers.parseUnits(tokensStr, 18);
+      const usd6 = (tokens18 * priceUSDT6 + 10n ** 18n - 1n) / 10n ** 18n; // ceil
+      if (ethUsd6 <= 0n) throw new Error("Oracle price not available");
+      let ethWei = (usd6 * 10n ** 18n) / ethUsd6;
+      ethWei = (ethWei * 102n) / 100n; // +2% buffer
+      const signer = await getSigner();
+      const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
+      await presale.buyWithETH.staticCall({ value: ethWei });
+      const tx = await presale.buyWithETH({ value: ethWei, gasLimit: 300000n });
+      await tx.wait();
+      await readState(signer);
+      setTxStatus("✅ ETH purchase successful!");
+    } catch (err: any) {
+      setTxStatus(`❌ Failed: ${err?.reason || err?.message || String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSmartBuyUSDT() {
+    if (!isConnected) return alert("Connect wallet first.");
+    try {
+      setLoading(true);
+      setTxStatus("Preparing USDT purchase…");
+      const tokensStr = (desiredTokens || "").trim();
+      if (!tokensStr || Number(tokensStr) <= 0) throw new Error("Enter valid SQ8 amount > 0");
+      const tokens18 = ethers.parseUnits(tokensStr, 18);
+      const usd6 = (tokens18 * priceUSDT6 + 10n ** 18n - 1n) / 10n ** 18n; // ceil
+      const signer = await getSigner();
+      const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
+      const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
+      let a = await erc20.allowance(address!, PRESALE_ADDRESS);
+      if (a < usd6) {
+        setTxStatus("Approving USDT…");
+        const txA = await erc20.approve(PRESALE_ADDRESS, usd6);
+        await txA.wait();
+        a = await erc20.allowance(address!, PRESALE_ADDRESS);
+        setAllowance(a);
+      }
+      setTxStatus("Buying with USDT…");
+      await presale.buyWithUSDT.staticCall(usd6);
+      const tx = await presale.buyWithUSDT(usd6, { gasLimit: 300000n });
+      await tx.wait();
+      await readState(signer);
+      setTxStatus("✅ USDT purchase successful!");
+    } catch (err: any) {
+      setTxStatus(`❌ Failed: ${err?.reason || err?.message || String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // buys
   async function handleBuyETH() {
     if (!isConnected) return alert("Connect wallet first.");
@@ -587,15 +647,15 @@ export default function App() {
           <div>≈ USDT needed: <b>{suggestUsdt} USDT</b></div>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button onClick={() => setEthAmount(suggestEth)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}>
-            Use for ETH
+          <button disabled={loading} onClick={handleSmartBuyETH} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#16a34a" }}>
+            {loading ? "Processing…" : "Buy with ETH"}
           </button>
-          <button onClick={() => setUsdtAmount(suggestUsdt)} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}>
-            Use for USDT
+          <button disabled={loading} onClick={handleSmartBuyUSDT} style={{ flex: 1, padding: 10, borderRadius: 8, background: "#2563eb" }}>
+            {loading ? "Processing…" : "Buy with USDT"}
           </button>
         </div>
         <p style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
-          Tip: These are estimates; the contract always charges the exact phase USD price using the oracle.
+          These buttons will directly purchase the desired SQ8 using calculated amounts (with buffer for ETH oracle).
         </p>
       </div>
 
