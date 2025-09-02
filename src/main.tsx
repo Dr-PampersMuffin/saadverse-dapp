@@ -2,6 +2,30 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+// ------- Programmatic background using BASE_URL -------
+const bgUrl = new URL('/assets/General backgroud.png', import.meta.env.BASE_URL).toString()
+
+// Put background on <html> so it sits behind everything
+document.documentElement.style.background = `url("${bgUrl}") center / cover fixed no-repeat`
+// Remove any dark defaults
+document.documentElement.style.setProperty('background-color', 'transparent')
+document.body.style.background = 'transparent'
+const rootEl = document.getElementById('root') as HTMLElement
+rootEl.style.background = 'transparent'
+
+// Add a soft dark overlay for readability
+const overlay = document.createElement('div')
+overlay.style.position = 'fixed'
+overlay.style.inset = '0'
+overlay.style.pointerEvents = 'none'
+overlay.style.zIndex = '0'
+overlay.style.background = 'rgba(0,0,0,0.45)' // tweak opacity as needed
+document.body.prepend(overlay)
+
+// Ensure the app renders above the overlay
+rootEl.style.position = 'relative'
+rootEl.style.zIndex = '1'
+// ------------------------------------------------------
 
 import { WagmiConfig, configureChains, createConfig } from "wagmi";
 import { base } from "wagmi/chains";
