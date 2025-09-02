@@ -2,22 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/saadverse-dapp/favicon.ico" />
+    <link rel="icon" href="%BASE_URL%favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SAADverse Presale dApp</title>
+
     <style>
-      body {
-        margin: 0;
-        height: 100vh;
-        background: url("/assets/General backgroud.png") center/cover no-repeat;
-        background-attachment: fixed;
-        font-family: sans-serif;
+      html, body, #root { height: 100%; margin: 0; }
+      /* Put the image on <html> so it sits behind everything */
+      html {
+        background: url("%BASE_URL%assets/General%20backgroud.png") center/cover fixed no-repeat;
       }
-      #root {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
+      /* Kill any framework defaults that make things black */
+      body, #root {
+        background: transparent !important;
       }
+
+      /* Soft dark overlay for readability */
+      html::before {
+        content: "";
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.45);
+        pointer-events: none;
+        z-index: 0;
+      }
+      /* Keep app above overlay */
+      #root { position: relative; z-index: 1; }
     </style>
   </head>
   <body>
