@@ -2,15 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Put a favicon in /public/favicon.ico (Vite will handle base path) -->
     <link rel="icon" href="/saadverse-dapp/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SAADverse Presale dApp</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        background: url("/assets/General backgroud.png") center/cover no-repeat;
+        background-attachment: fixed;
+        font-family: sans-serif;
+      }
+      #root {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-    <!-- Use a leading slash so Vite rewrites with the base prefix on build -->
     <script type="module" src="/src/main.tsx"></script>
-    <!-- If dev server is used locally, Vite still resolves /src correctly -->
   </body>
 </html>
