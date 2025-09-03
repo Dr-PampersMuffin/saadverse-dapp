@@ -4,8 +4,8 @@ import { ethers } from "ethers";
 /* =========================
    CONFIG (.env preferred)
    ========================= */
-const PRESALE_ADDRESS = import.meta.env.VITE_PRESALE_ADDRESS || "0xYOUR_PRESALE_ADDRESS";
-const USDT_ADDRESS    = import.meta.env.VITE_USDT_ADDRESS    || "0xYOUR_USDT_ADDRESS";
+const PRESALE_ADDRESS = import.meta.env.VITE_PRESALE_ADDRESS || "0x00ab2677723295F2d0A79cb68E1893f9707B409D";
+const USDT_ADDRESS    = import.meta.env.VITE_USDT_ADDRESS    || "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2";
 const USDT_DECIMALS   = Number(import.meta.env.VITE_USDT_DECIMALS || 6);
 
 const OWNER_ADDRESS   = (import.meta.env.VITE_OWNER_ADDRESS || "").toLowerCase();
