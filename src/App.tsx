@@ -87,8 +87,8 @@ export default function App() {
   const [price6, setPrice6] = useState("");
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
-  const [endCliffMin, setEndCliffMin] = useState("2");
-  const [endDurationMin, setEndDurationMin] = useState("6");
+  const [endCliffMin, setEndCliffMin] = useState("");
+  const [endDurationMin, setEndDurationMin] = useState("");
 
   const needsApprove = useMemo(() => {
     try {
