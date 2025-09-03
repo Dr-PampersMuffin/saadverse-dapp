@@ -1,12 +1,17 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-// IMPORTANT: this MUST match your repo name!
 export default defineConfig({
   plugins: [react()],
- base: '/saadverse-dapp/',
-build: { outDir: 'docs', emptyOutDir: true }
+  // Your repo name on GitHub Pages:
+  base: '/saadverse-dapp/',
+  // Build directly into /docs for Pages (main/docs):
+  build: {
+    outDir: 'docs',
+    emptyOutDir: true,
   },
+  // (Optional) local dev server settings
   server: {
     port: 5173,
     open: true,

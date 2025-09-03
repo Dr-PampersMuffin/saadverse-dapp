@@ -5,7 +5,30 @@
     <link rel="icon" href="/saadverse-dapp/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SAADverse Presale dApp</title>
-    <script type="module" crossorigin src="/saadverse-dapp/assets/index-BPwVS5It.js"></script>
+
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      /* Put the image on <html> so it sits behind everything */
+      html {
+        background: url("/saadverse-dapp/assets/General%20backgroud.png") center/cover fixed no-repeat;
+      }
+      /* Kill any framework defaults that make things black */
+      body, #root {
+        background: transparent !important;
+      }
+
+      /* Soft dark overlay for readability */
+      html::before {
+        content: "";
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.45);
+        pointer-events: none;
+        z-index: 0;
+      }
+      /* Keep app above overlay */
+      #root { position: relative; z-index: 1; }
+    </style>
+    <script type="module" crossorigin src="/saadverse-dapp/assets/index-zz7TAIqW.js"></script>
   </head>
   <body>
     <div id="root"></div>
