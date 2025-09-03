@@ -4,10 +4,8 @@ import react from "@vitejs/plugin-react";
 // IMPORTANT: this MUST match your repo name!
 export default defineConfig({
   plugins: [react()],
-  base: "/saadverse-dapp/",
-  build: {
-    outDir: 'docs',
-    sourcemap: false,
+ base: '/saadverse-dapp/',
+build: { outDir: 'docs', emptyOutDir: true }
   },
   server: {
     port: 5173,
