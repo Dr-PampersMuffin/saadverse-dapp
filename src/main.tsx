@@ -26,13 +26,16 @@ window.addEventListener("error", (e) => {
 });
 window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
   const reason = (e && (e as any).reason) ? (e as any).reason : e;
-  showFatal(typeof reason === "object" && reason?.message ? reason.message : String(reason));
+  showFatal(typeof reason === "object" && (reason as any)?.message ? (reason as any).message : String(reason));
 });
 
 function boot() {
   try {
-    // ---- Background image with BASE_URL-safe path ----
-    const bgUrl = new URL("/assets/General backgroud.png", import.meta.env.BASE_URL).toString();
+    // ---- Background image with BASE_URL-safe path (NO URL constructor) ----
+    const base = (import.meta as any).env?.BASE_URL ?? "/";
+    // ensure trailing slash
+    const prefix = base.endsWith("/") ? base : base + "/";
+    const bgUrl = `${prefix}assets/General%20backgroud.png`;
 
     const html = document.documentElement;
     const body = document.body;
