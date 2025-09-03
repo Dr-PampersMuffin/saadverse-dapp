@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 
 /** =========================================================
- *  CONFIG (edit directly or via .env)
+ *  CONFIG (edit or set via .env[.production])
  *  ========================================================= */
 const PRESALE_ADDRESS = import.meta.env.VITE_PRESALE_ADDRESS || "0x00ab2677723295F2d0A79cb68E1893f9707B409D";
 const USDT_ADDRESS    = import.meta.env.VITE_USDT_ADDRESS    || "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2";
@@ -13,7 +13,7 @@ const OWNER_ADDRESS   = (import.meta.env.VITE_OWNER_ADDRESS || "").toLowerCase()
 
 // Fiat on-ramps
 const COINBASE_CHECKOUT_URL  = import.meta.env.VITE_COINBASE_CHECKOUT_URL || ""; // e.g. https://commerce.coinbase.com/checkout/XXXX
-const TRANSAK_API_KEY        = import.meta.env.VITE_TRANSAK_API_KEY || "";      // required
+const TRANSAK_API_KEY        = import.meta.env.VITE_TRANSAK_API_KEY || "";
 const TRANSAK_ENV            = import.meta.env.VITE_TRANSAK_ENV || "PRODUCTION"; // or "STAGING"
 const TRANSAK_DEFAULT_CRYPTO = import.meta.env.VITE_TRANSAK_DEFAULT_CRYPTO || "ETH";
 
@@ -28,9 +28,9 @@ const SAAD_PRESALE_USD_PRO_ABI = [
 
   // Pricing
   "function priceUSDT6() view returns (uint256)",  // USDT price per SQ8 (6 dp)
-  "function getEthUsd6() view returns (uint256)",  // USD per 1 ETH in 6 dp
+  "function getEthUsd6() view returns (uint256)",  // USD per ETH in 6 dp
 
-  // Admin (optional; wrapped in try/catch)
+  // Admin (wrapped in try/catch)
   "function setPriceUSDT6(uint256) external",
   "function pause() external",
   "function unpause() external",
@@ -103,6 +103,7 @@ export default function App() {
   // Pricing
   const [priceUSDT6, setPriceUSDT6] = useState<bigint>(0n); // USDT per SQ8, 6 dp
   const [ethUsd6, setEthUsd6] = useState<bigint>(0n);       // USD per ETH, 6 dp
+  const pricingLoaded = priceUSDT6 > 0n && ethUsd6 > 0n;
 
   // UI state
   const [loading, setLoading] = useState(false);
@@ -154,8 +155,8 @@ export default function App() {
         presale.getEthUsd6().catch(() => 0n),
       ]);
 
-      if (typeof p6 === "bigint") setPriceUSDT6(p6);
-      if (typeof e6 === "bigint") setEthUsd6(e6);
+      if (typeof p6 === "bigint" && p6 > 0n) setPriceUSDT6(p6);
+      if (typeof e6 === "bigint" && e6 > 0n) setEthUsd6(e6);
     } catch (e) {
       console.warn("readState:", e);
     }
@@ -165,8 +166,21 @@ export default function App() {
     readState().catch(() => {});
   }, []);
 
+  // Helper: ensure pricing is available (retry a few times)
+  async function ensurePricing(): Promise<void> {
+    if (priceUSDT6 > 0n && ethUsd6 > 0n) return;
+    // try up to 3 times w/ small delay
+    for (let i = 0; i < 3; i++) {
+      await readState().catch(() => {});
+      if (priceUSDT6 > 0n && ethUsd6 > 0n) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (!(priceUSDT6 > 0n)) throw new Error("Price unavailable (priceUSDT6 not ready).");
+    if (!(ethUsd6 > 0n)) throw new Error("Pricing unavailable (ethUsd6 not ready).");
+  }
+
   /** ---------------------------------------------------------
-   *  Connect
+   *  Connect / Disconnect
    *  --------------------------------------------------------- */
   async function connect() {
     if (connectInFlight) return;
@@ -193,6 +207,14 @@ export default function App() {
       setLoading(false);
       connectInFlight = false;
     }
+  }
+
+  // MetaMask does not allow true programmatic disconnect. We clear local UI state.
+  function disconnect() {
+    setIsConnected(false);
+    setAccount("");
+    setChainId(null);
+    setTxStatus("Wallet disconnected in app. If you wish to revoke access, open MetaMask → three dots → Connected sites.");
   }
 
   /** ---------------------------------------------------------
@@ -264,9 +286,11 @@ export default function App() {
       setLoading(true);
       setTxStatus("Preparing ETH purchase…");
 
+      // Ensure pricing is available
+      await ensurePricing();
+
       const tokensWanted = parseFloat((desiredTokens || "").trim());
       if (!tokensWanted || tokensWanted <= 0) throw new Error("Enter SQ8 amount > 0");
-      if (!priceUSDT6 || !ethUsd6)            throw new Error("Pricing unavailable. Try again in a moment.");
 
       const signer  = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, presaleInterface, signer);
@@ -297,9 +321,18 @@ export default function App() {
       setLoading(true);
       setTxStatus("Preparing USDT purchase…");
 
+      // Ensure price is available (ethUsd6 not needed for USDT path)
+      if (!(priceUSDT6 > 0n)) {
+        for (let i = 0; i < 3; i++) {
+          await readState().catch(() => {});
+          if (priceUSDT6 > 0n) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!(priceUSDT6 > 0n)) throw new Error("Price unavailable (priceUSDT6 not ready).");
+      }
+
       const tokensWanted = parseFloat((desiredTokens || "").trim());
       if (!tokensWanted || tokensWanted <= 0) throw new Error("Enter SQ8 amount > 0");
-      if (!priceUSDT6)                         throw new Error("Price unavailable. Try again in a moment.");
 
       const signer  = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, presaleInterface, signer);
@@ -345,7 +378,6 @@ export default function App() {
       setTxStatus("❗ Set VITE_TRANSAK_API_KEY in .env");
       return;
     }
-
     // Hosted URL docs: https://docs.transak.com/docs/hosted-url-parameters
     const base =
       TRANSAK_ENV === "STAGING"
@@ -466,8 +498,16 @@ export default function App() {
         >
           {isConnected ? "Wallet Connected" : loading ? "Connecting…" : "Connect Wallet"}
         </button>
+        {isConnected && (
+          <button
+            onClick={disconnect}
+            style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.2)" }}
+          >
+            Disconnect
+          </button>
+        )}
 
-        <div style={{ fontSize: 12, opacity: 0.85 }}>
+        <div style={{ fontSize: 12, opacity: 0.9 }}>
           {account ? `Acct: ${account.slice(0, 6)}…${account.slice(-4)}` : "Not connected"}
           {chainId ? ` • ChainID: ${chainId}` : ""}
         </div>
@@ -479,8 +519,29 @@ export default function App() {
           <button onClick={openTransak} style={{ padding: "8px 12px", borderRadius: 8 }}>
             🌐 Buy with Card (Transak)
           </button>
+          <button
+            onClick={() => readState().then(() => setTxStatus("ℹ️ Pricing refreshed")).catch(() => setTxStatus("❌ Failed to refresh pricing"))}
+            style={{ padding: "8px 12px", borderRadius: 8 }}
+            title="Refresh priceUSDT6 / ethUsd6"
+          >
+            🔄 Refresh Pricing
+          </button>
         </div>
       </header>
+
+      {/* Pricing banner */}
+      <div
+        style={{
+          background: "rgba(0,0,0,0.35)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 12,
+          padding: 12,
+          fontSize: 13,
+        }}
+      >
+        Price (USDT 6dp / SQ8): <b>{priceUSDT6.toString()}</b> • ETH USD (6dp): <b>{ethUsd6.toString()}</b>
+        {!pricingLoaded && <span style={{ marginLeft: 8, opacity: 0.9 }}>⏳ Loading on-chain pricing…</span>}
+      </div>
 
       {/* BUY WITH ETH */}
       <section
@@ -564,9 +625,6 @@ export default function App() {
         }}
       >
         <h3 style={{ margin: 0 }}>Smart Buy by SQ8 amount</h3>
-        <div style={{ fontSize: 13, opacity: 0.9 }}>
-          Price (USDT 6dp / SQ8): <b>{priceUSDT6.toString()}</b> • ETH USD (6dp): <b>{ethUsd6.toString()}</b>
-        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input
             type="text"
@@ -594,7 +652,7 @@ export default function App() {
       </section>
 
       {/* ADMIN PANEL (only owner) */}
-      {isOwner && (
+      {isOwner ? (
         <section
           style={{
             background: "rgba(30,20,10,0.55)",
@@ -650,6 +708,19 @@ export default function App() {
             <code>{OWNER_ADDRESS || "(VITE_OWNER_ADDRESS not set)"}</code>
           </div>
         </section>
+      ) : (
+        <div
+          style={{
+            background: "rgba(0,0,0,0.35)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 12,
+            padding: 12,
+            fontSize: 13,
+          }}
+        >
+          Admin Panel hidden. Connect with the owner wallet (
+          <code>{OWNER_ADDRESS || "set VITE_OWNER_ADDRESS in .env"}</code>) to manage presale.
+        </div>
       )}
 
       {/* Status / messages */}
