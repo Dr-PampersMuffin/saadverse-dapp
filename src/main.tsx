@@ -1,79 +1,37 @@
+// src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 
-// ---- Simple on-screen error surface ----
-function showFatal(msg: string) {
-  const bar = document.createElement("div");
-  bar.style.position = "fixed";
-  bar.style.left = "0";
-  bar.style.right = "0";
-  bar.style.top = "0";
-  bar.style.zIndex = "999999";
-  bar.style.padding = "10px 14px";
-  bar.style.background = "rgba(200,0,0,0.9)";
-  bar.style.color = "#fff";
-  bar.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-  bar.style.fontSize = "14px";
-  bar.style.whiteSpace = "pre-wrap";
-  bar.textContent = "Runtime error: " + msg;
-  document.body.appendChild(bar);
-}
+import { WagmiConfig, configureChains, createConfig } from "wagmi";
+import { base } from "wagmi/chains";
+import { jsonRpcProvider } from "wagmi/providers/jsonRpc";
 
-window.addEventListener("error", (e) => {
-  if (e?.error?.message) showFatal(e.error.message);
-  else showFatal(String(e?.message ?? e));
-});
-window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
-  const reason = (e && (e as any).reason) ? (e as any).reason : e;
-  showFatal(typeof reason === "object" && (reason as any)?.message ? (reason as any).message : String(reason));
+// Use a reliable Base mainnet RPC
+const BASE_RPC = import.meta.env.VITE_BASE_MAINNET_RPC || "https://rpc.ankr.com/base/b2f2e2cb3aa48877888eb3974f552ff4da4b442616b24a4eb9f5e4b9947ddeff";
+
+const { chains, publicClient, webSocketPublicClient } = configureChains(
+  [base],
+  [
+    jsonRpcProvider({
+      rpc: () => ({ http: BASE_RPC }),
+    }),
+  ]
+);
+
+// Minimal injected connector (MetaMask, Coinbase Wallet extension, Trust Wallet extension)
+import { InjectedConnector } from "wagmi/connectors/injected";
+const config = createConfig({
+  autoConnect: true,
+  publicClient,
+  webSocketPublicClient,
+  connectors: [new InjectedConnector({ chains })],
 });
 
-function boot() {
-  try {
-    // ---- Background image with BASE_URL-safe path (NO URL constructor) ----
-    const base = (import.meta as any).env?.BASE_URL ?? "/";
-    // ensure trailing slash
-    const prefix = base.endsWith("/") ? base : base + "/";
-    const bgUrl = `${prefix}assets/General%20backgroud.png`;
-
-    const html = document.documentElement;
-    const body = document.body;
-
-    html.style.background = `url("${bgUrl}") center / cover fixed no-repeat`;
-    html.style.backgroundColor = "transparent";
-    body.style.background = "transparent";
-
-    // soft dark overlay for readability
-    const overlay = document.createElement("div");
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.pointerEvents = "none";
-    overlay.style.zIndex = "0";
-    overlay.style.background = "rgba(0,0,0,0.45)";
-    body.prepend(overlay);
-
-    const rootEl = document.getElementById("root");
-    if (!rootEl) {
-      showFatal('#root not found in index.html');
-      return;
-    }
-    rootEl.style.position = "relative";
-    rootEl.style.zIndex = "1";
-    rootEl.style.background = "transparent";
-
-    ReactDOM.createRoot(rootEl).render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
-    );
-  } catch (err: any) {
-    showFatal(err?.message || String(err));
-  }
-}
-
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", boot, { once: true });
-} else {
-  boot();
-}
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <WagmiConfig config={config}>
+      <App />
+    </WagmiConfig>
+  </React.StrictMode>
+);
