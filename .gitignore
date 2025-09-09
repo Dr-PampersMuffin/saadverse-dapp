@@ -17,3 +17,7 @@ node_modules/.cache/gh-pages/
 # OS/editor
 .DS_Store
 Thumbs.db
+
+# env
+.env
+.env.local
