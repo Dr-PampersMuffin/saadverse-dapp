@@ -50,9 +50,9 @@ export default function App() {
   const [ethUsd6, setEthUsd6] = useState<bigint>(0n); // ETH/USD * 1e6
 
   // “buy by amount of SQ8”
-  const [desiredTokens, setDesiredTokens] = useState<string>(""); // human 18dp
-  const [suggestUsd, setSuggestUsd] = useState<string>("0.00");   // USD
-  const [suggestUsdt, setSuggestUsdt] = useState<string>("0.00"); // USDT (≈ USD for 6dp stables)
+  const [desiredTokens, setDesiredTokens] = useState<string>("");
+  const [suggestUsd, setSuggestUsd] = useState<string>("0.00");
+  const [suggestUsdt, setSuggestUsdt] = useState<string>("0.00");
   const [suggestEth, setSuggestEth] = useState<string>("0.000000");
 
   // ETH buy
@@ -197,7 +197,6 @@ export default function App() {
       const pr6: bigint = await presale.pricePerTokenUSDT(p);
       setPriceUSDT6(pr6);
       setUsdPrice(Number(pr6) / 1e6);
-      // phase info (cap/sold/deadline)
       const info = await presale.phases(p);
       setPhaseCap(info.cap);
       setPhaseSold(info.sold);
@@ -210,7 +209,6 @@ export default function App() {
 
     try { setEthUsd6(await presale.getEthUsd6()); } catch {}
 
-    // vesting card
     if (address) {
       try {
         const v = await presale.vestingInfo(address);
@@ -227,7 +225,6 @@ export default function App() {
       }
     }
 
-    // usdt (tolerant)
     try {
       const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
       try { setUsdtDecimals(await erc20.decimals()); } catch {}
@@ -258,15 +255,14 @@ export default function App() {
         setSuggestEth("0.000000");
         return;
       }
-      // usd6Total = tokens18 * price6 / 1e18
-      const tokens18 = ethers.parseUnits(tokensStr, 18); // bigint
+      const tokens18 = ethers.parseUnits(tokensStr, 18);
       const usd6Total = (tokens18 * priceUSDT6) / 10n ** 18n;
 
       const usd = Number(usd6Total) / 1e6;
       setSuggestUsd(TWO_DEC(usd));
-      setSuggestUsdt(TWO_DEC(usd)); // USDT ~ USD
+      setSuggestUsdt(TWO_DEC(usd));
       if (ethUsd6 > 0n) {
-        const eth = Number(usd6Total) / Number(ethUsd6); // ETH = USD6 / ETHUSD6
+        const eth = Number(usd6Total) / Number(ethUsd6);
         setSuggestEth(SIX_DEC(eth));
       } else {
         setSuggestEth("0.000000");
@@ -348,20 +344,17 @@ export default function App() {
       const signer = await getSigner();
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
 
-      // get fresh phase + price + oracle
       const p: bigint = await presale.currentPhase();
       const pr6: bigint = await presale.pricePerTokenUSDT(p);
       const oracleEthUsd6: bigint = await presale.getEthUsd6();
       if (!(pr6 > 0n)) throw new Error("Price unavailable.");
       if (!(oracleEthUsd6 > 0n)) throw new Error("ETH/USD price unavailable.");
 
-      // USD (6 dp) = tokens18 * price6 / 1e18
       const tokens18 = ethers.parseUnits(String(tokensWanted), 18);
       const usd6 = (tokens18 * pr6) / 10n ** 18n;
 
-      // Convert USD→ETH using oracle (6 dp)
       let ethWei = (usd6 * 1_000_000_000_000_000_000n) / oracleEthUsd6;
-      ethWei = (ethWei * 102n) / 100n; // +2% buffer
+      ethWei = (ethWei * 102n) / 100n;
 
       try { await presale.buyWithETH.staticCall({ value: ethWei }); } catch {}
       const tx = await presale.buyWithETH({ value: ethWei, gasLimit: 300000n });
@@ -389,16 +382,13 @@ export default function App() {
       const presale = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, signer);
       const erc20 = new ethers.Contract(USDT_ADDRESS, ERC20_MIN_ABI, signer);
 
-      // fresh price
       const p: bigint = await presale.currentPhase();
       const pr6: bigint = await presale.pricePerTokenUSDT(p);
       if (!(pr6 > 0n)) throw new Error("Price unavailable.");
 
-      // USD (6 dp)
       const tokens18 = ethers.parseUnits(String(tokensWanted), 18);
       const usd6 = (tokens18 * pr6) / 10n ** 18n;
 
-      // approve if needed
       const a: bigint = await erc20.allowance(address!, PRESALE_ADDRESS);
       if (a < usd6) {
         setTxStatus("Approving USDT…");
@@ -406,7 +396,6 @@ export default function App() {
         await txA.wait();
       }
 
-      // buy
       setTxStatus("Buying with USDT…");
       try { await presale.buyWithUSDT.staticCall(usd6); } catch {}
       const tx = await presale.buyWithUSDT(usd6, { gasLimit: 300000n });
@@ -563,10 +552,353 @@ export default function App() {
     } catch (e: any) { alert(e?.reason || e?.message || String(e)); }
   }
 
+  // ===== AdminExportCSV (owner-only) =====
+  function AdminExportCSV() {
+    const [rpcUrl, setRpcUrl] = React.useState<string>("https://rpc.ankr.com/base");
+    const [fromBlock, setFromBlock] = React.useState<string>("0");
+    const [isRunning, setIsRunning] = React.useState(false);
+    const [progress, setProgress] = React.useState<string>("");
+    const [rowsCount, setRowsCount] = React.useState<number>(0);
+
+    // We use lightweight local event fragments so this works even if the ABI is big.
+    const iface = React.useMemo(
+      () =>
+        new ethers.Interface([
+          "event PurchasedETH(address indexed buyer, uint256 ethWei, uint256 usd6, uint256 tokens, uint8 phase)",
+          "event PurchasedUSDT(address indexed buyer, uint256 usdt6, uint256 tokens, uint8 phase)",
+          // claims: support two common names
+          "event Claimed(address indexed user, uint256 amount)",
+          "event TokensClaimed(address indexed user, uint256 amount)"
+        ]),
+      []
+    );
+
+    // simple owner check (read-only)
+    const [ownerOk, setOwnerOk] = React.useState(false);
+    useEffect(() => {
+      (async () => {
+        try {
+          const provider = new ethers.JsonRpcProvider(rpcUrl);
+          const c = new ethers.Contract(PRESALE_ADDRESS, SAAD_PRESALE_USD_PRO_ABI, provider);
+          const owner = await c.owner();
+          setOwnerOk(!!address && address.toLowerCase() === String(owner).toLowerCase());
+        } catch {
+          setOwnerOk(false);
+        }
+      })();
+    }, [rpcUrl, address]);
+
+    function download(filename: string, contents: string) {
+      const blob = new Blob([contents], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function toCSV(header: string[], rows: Record<string, any>[]) {
+      const esc = (v: any) => {
+        const s = String(v ?? "");
+        if (s.includes(",") || s.includes("\n") || s.includes("\"")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+      const head = header.join(",");
+      const body = rows.map(r => header.map(h => esc(r[h])).join(",")).join("\n");
+      return head + "\n" + body;
+    }
+
+    async function scanPurchases(provider: ethers.JsonRpcProvider, startBlock: number) {
+      const latest = await provider.getBlockNumber();
+      const step = 5000;
+
+      const rows: any[] = [];
+      const topicETH  = iface.getEvent("PurchasedETH").topicHash;
+      const topicUSDT = iface.getEvent("PurchasedUSDT").topicHash;
+
+      for (let from = startBlock; from <= latest; from += step) {
+        const to = Math.min(from + step - 1, latest);
+        setProgress(`Scanning purchases ${from} – ${to} of ${latest}…`);
+
+        const logsETH = await provider.getLogs({ address: PRESALE_ADDRESS, fromBlock: from, toBlock: to, topics: [topicETH] });
+        for (const log of logsETH) {
+          const ev = iface.decodeEventLog("PurchasedETH", log.data, log.topics);
+          rows.push({
+            buyer: String(ev.buyer),
+            currency: "ETH",
+            amount_usd6: (ev.usd6 as bigint).toString(),
+            amount_ethWei_or_usdt6: (ev.ethWei as bigint).toString(),
+            tokens_wei: (ev.tokens as bigint).toString(),
+            tokens_human: (Number(ev.tokens as bigint) / 1e18).toString(),
+            phase: Number(ev.phase),
+            txHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+          });
+        }
+
+        const logsUSDT = await provider.getLogs({ address: PRESALE_ADDRESS, fromBlock: from, toBlock: to, topics: [topicUSDT] });
+        for (const log of logsUSDT) {
+          const ev = iface.decodeEventLog("PurchasedUSDT", log.data, log.topics);
+          rows.push({
+            buyer: String(ev.buyer),
+            currency: "USDT",
+            amount_usd6: (ev.usdt6 as bigint).toString(),
+            amount_ethWei_or_usdt6: (ev.usdt6 as bigint).toString(),
+            tokens_wei: (ev.tokens as bigint).toString(),
+            tokens_human: (Number(ev.tokens as bigint) / 1e18).toString(),
+            phase: Number(ev.phase),
+            txHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+          });
+        }
+        setRowsCount(rows.length);
+      }
+      return rows;
+    }
+
+    async function scanClaims(provider: ethers.JsonRpcProvider, startBlock: number) {
+      const latest = await provider.getBlockNumber();
+      const step = 5000;
+
+      const rows: any[] = [];
+      const topicsTry = [
+        iface.getEvent("Claimed").topicHash,
+        iface.getEvent("TokensClaimed").topicHash,
+      ];
+
+      for (let from = startBlock; from <= latest; from += step) {
+        const to = Math.min(from + step - 1, latest);
+        setProgress(`Scanning claims ${from} – ${to} of ${latest}…`);
+
+        // query once per signature to be thorough
+        for (const topic of topicsTry) {
+          const logs = await provider.getLogs({ address: PRESALE_ADDRESS, fromBlock: from, toBlock: to, topics: [topic] });
+          for (const log of logs) {
+            // try both names when decoding
+            let ev: any;
+            try { ev = iface.decodeEventLog("Claimed", log.data, log.topics); }
+            catch {
+              try { ev = iface.decodeEventLog("TokensClaimed", log.data, log.topics); }
+              catch { continue; }
+            }
+            rows.push({
+              user: String(ev.user ?? ev[0]),
+              amount_wei: (ev.amount as bigint).toString(),
+              amount_human: (Number(ev.amount as bigint) / 1e18).toString(),
+              txHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+            });
+          }
+        }
+        setRowsCount(rows.length);
+      }
+      return rows;
+    }
+
+    async function exportPurchases(alsoAgg: boolean) {
+      if (!ownerOk) return alert("Connect the owner wallet to export.");
+      const startBlock = parseInt(fromBlock || "0", 10);
+      if (Number.isNaN(startBlock)) return alert("Invalid start block.");
+
+      setIsRunning(true);
+      setProgress("Connecting RPC…");
+      setRowsCount(0);
+
+      try {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const rows = await scanPurchases(provider, startBlock);
+
+        const rawHeader = [
+          "buyer",
+          "currency",
+          "amount_usd6",
+          "amount_ethWei_or_usdt6",
+          "tokens_wei",
+          "tokens_human",
+          "phase",
+          "txHash",
+          "blockNumber",
+        ];
+        download("purchases_raw.csv", toCSV(rawHeader, rows));
+
+        if (alsoAgg) {
+          const agg: Record<string, { tokens: bigint; usd6: bigint; ethWei: bigint; usdt6: bigint }> = {};
+          for (const r of rows) {
+            agg[r.buyer] ??= { tokens: 0n, usd6: 0n, ethWei: 0n, usdt6: 0n };
+            agg[r.buyer].tokens += BigInt(r.tokens_wei);
+            agg[r.buyer].usd6   += BigInt(r.amount_usd6);
+            if (r.currency === "ETH")  agg[r.buyer].ethWei += BigInt(r.amount_ethWei_or_usdt6);
+            if (r.currency === "USDT") agg[r.buyer].usdt6  += BigInt(r.amount_ethWei_or_usdt6);
+          }
+          const aggRows = Object.entries(agg).map(([buyer, a]) => ({
+            buyer,
+            total_tokens_wei: a.tokens.toString(),
+            total_tokens: (Number(a.tokens) / 1e18).toString(),
+            usd6_total: a.usd6.toString(),
+            ethWei_total: a.ethWei.toString(),
+            usdt6_total: a.usdt6.toString(),
+          }));
+          const aggHeader = [
+            "buyer",
+            "total_tokens_wei",
+            "total_tokens",
+            "usd6_total",
+            "ethWei_total",
+            "usdt6_total",
+          ];
+          download("purchases_agg.csv", toCSV(aggHeader, aggRows));
+        }
+
+        setProgress(`Done. Exported ${rows.length} purchase rows.`);
+      } catch (e: any) {
+        console.error(e);
+        setProgress(`Error: ${e?.message || String(e)}`);
+      } finally {
+        setIsRunning(false);
+      }
+    }
+
+    async function exportClaims() {
+      if (!ownerOk) return alert("Connect the owner wallet to export.");
+      const startBlock = parseInt(fromBlock || "0", 10);
+      if (Number.isNaN(startBlock)) return alert("Invalid start block.");
+
+      setIsRunning(true);
+      setProgress("Connecting RPC…");
+      setRowsCount(0);
+
+      try {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const rows = await scanClaims(provider, startBlock);
+
+        const header = [
+          "user",
+          "amount_wei",
+          "amount_human",
+          "txHash",
+          "blockNumber",
+        ];
+        download("claims_raw.csv", toCSV(header, rows));
+
+        setProgress(`Done. Exported ${rows.length} claim rows.`);
+      } catch (e: any) {
+        console.error(e);
+        setProgress(`Error: ${e?.message || String(e)}`);
+      } finally {
+        setIsRunning(false);
+      }
+    }
+
+    async function exportAll() {
+      if (!ownerOk) return alert("Connect the owner wallet to export.");
+      const startBlock = parseInt(fromBlock || "0", 10);
+      if (Number.isNaN(startBlock)) return alert("Invalid start block.");
+
+      setIsRunning(true);
+      setProgress("Connecting RPC…");
+      setRowsCount(0);
+
+      try {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const purchaseRows = await scanPurchases(provider, startBlock);
+        const purchaseHeader = [
+          "buyer",
+          "currency",
+          "amount_usd6",
+          "amount_ethWei_or_usdt6",
+          "tokens_wei",
+          "tokens_human",
+          "phase",
+          "txHash",
+          "blockNumber",
+        ];
+        download("purchases_raw.csv", toCSV(purchaseHeader, purchaseRows));
+
+        const claimRows = await scanClaims(provider, startBlock);
+        const claimHeader = ["user", "amount_wei", "amount_human", "txHash", "blockNumber"];
+        download("claims_raw.csv", toCSV(claimHeader, claimRows));
+
+        setProgress(`Done. Purchases: ${purchaseRows.length} | Claims: ${claimRows.length}`);
+      } catch (e: any) {
+        console.error(e);
+        setProgress(`Error: ${e?.message || String(e)}`);
+      } finally {
+        setIsRunning(false);
+      }
+    }
+
+    return (
+      <div style={{ border: "1px solid #999", borderRadius: 12, padding: 16, marginTop: 16 }}>
+        <h3>Admin: Export CSV</h3>
+        {!ownerOk && (
+          <p style={{ color: "#f43f5e", marginTop: 0 }}>
+            Connect the <b>owner wallet</b> to enable export.
+          </p>
+        )}
+
+        <label style={{ display: "block", fontSize: 12, opacity: 0.8, marginTop: 8 }}>Base RPC URL</label>
+        <input
+          value={rpcUrl}
+          onChange={(e) => setRpcUrl(e.target.value)}
+          placeholder="https://rpc.ankr.com/base"
+          style={{ width: "100%", padding: 10, borderRadius: 8, margin: "4px 0 8px" }}
+        />
+
+        <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>From Block (deployment block)</label>
+        <input
+          value={fromBlock}
+          onChange={(e) => setFromBlock(e.target.value)}
+          placeholder="e.g. 22500000"
+          style={{ width: "100%", padding: 10, borderRadius: 8, margin: "4px 0 12px" }}
+        />
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            disabled={!ownerOk || isRunning}
+            onClick={() => exportPurchases(false)}
+            style={{ padding: 12, borderRadius: 8, background: "#eab308", color: "#000" }}
+          >
+            {isRunning ? "Exporting…" : "Export Purchases (RAW)"}
+          </button>
+          <button
+            disabled={!ownerOk || isRunning}
+            onClick={() => exportPurchases(true)}
+            style={{ padding: 12, borderRadius: 8, background: "#f59e0b", color: "#000" }}
+          >
+            {isRunning ? "Exporting…" : "Purchases RAW + Aggregated"}
+          </button>
+          <button
+            disabled={!ownerOk || isRunning}
+            onClick={exportClaims}
+            style={{ padding: 12, borderRadius: 8, background: "#10b981", color: "#000" }}
+          >
+            {isRunning ? "Exporting…" : "Export CLAIMS (RAW)"}
+          </button>
+          <button
+            disabled={!ownerOk || isRunning}
+            onClick={exportAll}
+            style={{ padding: 12, borderRadius: 8, background: "#60a5fa", color: "#000" }}
+          >
+            {isRunning ? "Exporting…" : "Export ALL"}
+          </button>
+        </div>
+
+        <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+          {progress || "Idle"} {rowsCount ? `| Rows: ${rowsCount}` : ""}
+        </p>
+      </div>
+    );
+  }
+
   // gauge helpers
   function percentSold(cap: bigint, sold: bigint): number {
     if (cap <= 0n) return 0;
-    const pctTimes100 = (sold * 10000n) / cap; // two decimals
+    const pctTimes100 = (sold * 10000n) / cap;
     return Number(pctTimes100) / 100;
   }
   function secondsToDHMS(s: number) {
@@ -836,6 +1168,9 @@ export default function App() {
               <button onClick={adminEndPresaleQuick}>End Presale & Start Vesting</button>
             </div>
           </div>
+
+          {/* CSV Exporter (Purchases + Claims) */}
+          <AdminExportCSV />
         </div>
       ) : (
         <div style={{ border: "1px solid #444", background: "rgba(0,0,0,0.45)", padding: 12, borderRadius: 8, marginTop: 16, maxWidth: 520 }}>
