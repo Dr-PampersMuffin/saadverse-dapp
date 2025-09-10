@@ -428,30 +428,47 @@ export default function App() {
   }
 
   // onramps (simple window)
-  function openTransak() {
-    if (!address) return alert("Connect wallet first.");
-    if (!TRANSAK_API_KEY || TRANSAK_API_KEY === "YOUR_TRANSAK_API_KEY") {
-      alert("Set TRANSAK_API_KEY in src/constants.ts");
-      return;
-    }
-    const params = new URLSearchParams({
-      apiKey: TRANSAK_API_KEY,
-      environment: "PRODUCTION",
-      walletAddress: address,
-      defaultCryptoCurrency: "ETH",
-      cryptoCurrencyCode: "ETH",
-    });
-    const url = `${TRANSAK_ENV_URL}?${params.toString()}`;
-    window.open(url, "_blank", "width=420,height=720");
+// --- Onramps (reads from constants/env) ---
+function openTransak() {
+  if (!address) {
+    alert("Connect wallet first.");
+    return;
   }
 
-  function openCoinbaseCheckout() {
-    if (!COINBASE_CHECKOUT_ID || COINBASE_CHECKOUT_ID === "YOUR_COMMERCE_CHECKOUT_ID") {
-      alert("Set COINBASE_CHECKOUT_ID in src/constants.ts");
-      return;
-    }
-    window.open(`https://commerce.coinbase.com/checkout/${COINBASE_CHECKOUT_ID}`, "_blank");
+  // Use constants which already read from import.meta.env
+  const apiKey = TRANSAK_API_KEY;
+  const envUrl = TRANSAK_ENV_URL || "https://global.transak.com";
+
+  if (!apiKey || apiKey === "905b840d-5e5b-4ab8-8610-cb227636e3e6") {
+    alert("Missing Transak key. Set VITE_TRANSAK_API_KEY in .env.local and rebuild.");
+    return;
   }
+
+  const params = new URLSearchParams({
+    apiKey,
+    environment: "PRODUCTION",          // or "STAGING" if your key is a sandbox key
+    walletAddress: address!,
+    defaultCryptoCurrency: "ETH",
+    cryptoCurrencyCode: "ETH",
+    // You can pin network: Base (chainId 8453)
+    network: "base_mainnet",
+  });
+
+  const url = `${envUrl}?${params.toString()}`;
+  window.open(url, "_blank", "width=420,height=720");
+}
+
+function openCoinbaseCheckout() {
+  const checkoutId = COINBASE_CHECKOUT_ID;
+
+  if (!checkoutId || checkoutId === "37570fdf-7968-4d67-a4d6-9ffa4c4b77dd") {
+    alert("Missing Coinbase checkout ID. Set VITE_COINBASE_CHECKOUT_ID in .env.local and rebuild.");
+    return;
+  }
+
+  window.open(`https://commerce.coinbase.com/checkout/${checkoutId}`, "_blank");
+}
+
 
   // admin (owner-only on chain; now also gated in UI)
   async function adminPauseResume(pause: boolean) {
