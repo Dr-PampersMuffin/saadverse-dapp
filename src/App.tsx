@@ -427,7 +427,6 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
-  // onramps (simple window)
 // --- Onramps (reads from constants/env) ---
 function openTransak() {
   if (!address) {
@@ -435,23 +434,21 @@ function openTransak() {
     return;
   }
 
-  // Use constants which already read from import.meta.env
-  const apiKey = TRANSAK_API_KEY;
+  const apiKey = TRANSAK_API_KEY;                     // comes from constants.ts
   const envUrl = TRANSAK_ENV_URL || "https://global.transak.com";
 
-  if (!apiKey || apiKey === "905b840d-5e5b-4ab8-8610-cb227636e3e6") {
+  if (!apiKey || apiKey === "YOUR_TRANSAK_API_KEY") {
     alert("Missing Transak key. Set VITE_TRANSAK_API_KEY in .env.local and rebuild.");
     return;
   }
 
   const params = new URLSearchParams({
     apiKey,
-    environment: "PRODUCTION",          // or "STAGING" if your key is a sandbox key
+    environment: "PRODUCTION",                        // use "STAGING" if your key is sandbox
     walletAddress: address!,
     defaultCryptoCurrency: "ETH",
     cryptoCurrencyCode: "ETH",
-    // You can pin network: Base (chainId 8453)
-    network: "base_mainnet",
+    network: "base_mainnet",                          // pin to Base
   });
 
   const url = `${envUrl}?${params.toString()}`;
@@ -459,15 +456,16 @@ function openTransak() {
 }
 
 function openCoinbaseCheckout() {
-  const checkoutId = COINBASE_CHECKOUT_ID;
+  const checkoutId = COINBASE_CHECKOUT_ID;            // comes from constants.ts
 
-  if (!checkoutId || checkoutId === "37570fdf-7968-4d67-a4d6-9ffa4c4b77dd") {
+  if (!checkoutId || checkoutId === "YOUR_COMMERCE_CHECKOUT_ID") {
     alert("Missing Coinbase checkout ID. Set VITE_COINBASE_CHECKOUT_ID in .env.local and rebuild.");
     return;
   }
 
   window.open(`https://commerce.coinbase.com/checkout/${checkoutId}`, "_blank");
 }
+
 
 
   // admin (owner-only on chain; now also gated in UI)
@@ -1100,18 +1098,26 @@ function openCoinbaseCheckout() {
       </div>
 
       {/* Onramps */}
-      <div style={{ border: "1px solid #f59e0b", background: "rgba(0,0,0,0.45)", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%" }}>
-        <h3>Buy with Card / Apple Pay / PayPal</h3>
-        <button onClick={openTransak} style={{ padding: 12, background: "#f59e0b", color: "#000", borderRadius: 8, width: "100%", marginBottom: 8 }}>
-          Open Transak (Card / Apple Pay)
-        </button>
-        <button onClick={openCoinbaseCheckout} style={{ padding: 12, background: "#fff", color: "#000", borderRadius: 8, width: "100%" }}>
-          Open Coinbase Commerce (Card / PayPal / Crypto)
-        </button>
-        <p style={{ fontSize: 12, opacity: 0.85, marginTop: 8 }}>
-          Configure <code>TRANSAK_API_KEY</code> and <code>COINBASE_CHECKOUT_ID</code> in <code>src/constants.ts</code>.
-        </p>
-      </div>
+<div style={{ border: "1px solid #f59e0b", background: "rgba(0,0,0,0.45)", borderRadius: 12, padding: 16, maxWidth: 520, width: "100%" }}>
+  <h3>Buy with Card / Apple Pay / PayPal</h3>
+
+  {import.meta.env.DEV && (
+    <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.9 }}>
+      <div><b>Config (dev only):</b></div>
+      <div>TRANSAK_API_KEY: {TRANSAK_API_KEY && TRANSAK_API_KEY !== "YOUR_TRANSAK_API_KEY" ? "✅ set" : "❌ missing"}</div>
+      <div>COINBASE_CHECKOUT_ID: {COINBASE_CHECKOUT_ID && COINBASE_CHECKOUT_ID !== "YOUR_COMMERCE_CHECKOUT_ID" ? "✅ set" : "❌ missing"}</div>
+    </div>
+  )}
+
+  <button onClick={openTransak} style={{ padding: 12, background: "#f59e0b", color: "#000", borderRadius: 8, width: "100%", marginBottom: 8 }}>
+    Open Transak (Card / Apple Pay)
+  </button>
+
+  <button onClick={openCoinbaseCheckout} style={{ padding: 12, background: "#fff", color: "#000", borderRadius: 8, width: "100%" }}>
+    Open Coinbase Commerce (Card / PayPal / Crypto)
+  </button>
+</div>
+
 
       {/* Claim */}
       {isConnected && <ClaimCard />}
