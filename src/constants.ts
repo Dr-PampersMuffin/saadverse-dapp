@@ -20,8 +20,12 @@ export const SAAD_ADDRESS =
 export const TRANSAK_ENV_URL =
   import.meta.env.VITE_TRANSAK_ENV_URL || "https://global.transak.com";
 
-export const TRANSAK_API_KEY = "905b840d-5e5b-4ab8-8610-cb227636e3e6";
-export const COINBASE_CHECKOUT_ID = "37570fdf-7968-4d67-a4d6-9ffa4c4b77dd";
+export const TRANSAK_API_KEY =
+  import.meta.env.VITE_TRANSAK_API_KEY || "905b840d-5e5b-4ab8-8610-cb227636e3e6";
+
+export const COINBASE_CHECKOUT_ID =
+  import.meta.env.VITE_COINBASE_CHECKOUT_ID || "37570fdf-7968-4d67-a4d6-9ffa4c4b77dd";
+
 
 
 
